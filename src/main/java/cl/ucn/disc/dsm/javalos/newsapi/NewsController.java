@@ -20,48 +20,160 @@
 package cl.ucn.disc.dsm.javalos.newsapi;
 
 import cl.ucn.disc.dsm.javalos.newsapi.model.News;
+import com.kwabenaberko.newsapilib.models.Article;
+import com.kwabenaberko.newsapilib.models.response.ArticleResponse;
+import com.kwabenaberko.newsapilib.network.APIClient;
+import com.kwabenaberko.newsapilib.network.APIService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.threeten.bp.ZoneId;
 import org.threeten.bp.ZonedDateTime;
+import retrofit2.Response;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  *  The Controller of News
  *  @author José Ávalos-Guzmán
  */
 @RestController
+@Slf4j
 public class NewsController {
+
+    /**
+     * The Repo of News.
+     */
+    private final NewsRepository  newsRepository;
+
+    /**
+     *The Contructor of NewsController.
+     * @Param newsRepository.
+     */
+    public NewsController(NewsRepository newsRepository){
+        this.newsRepository = newsRepository;
+    }
 
     /**
      * @return all the News in the backend.
      */
     @GetMapping("/v1/news")
-    public List<News> all(){
-        return new ArrayList<>();
+
+    public List<News> all(@RequestParam(required = false, defaultValue = "false") Boolean reload){
+
+        // Is reload -> get news from NewsAPI.org
+        if (reload) {
+            this.reloadNewsFromNewsApi();
+        }
+
+        // Equals to SELECT * FROM News;
+        final List<News> theNews = this.newsRepository.findAll();
+
+        //TODO: Show the news in console
+        return theNews;
+    }
+
+    /**
+     * Get the News from NewsAPI and save into the database.
+     */
+    private void reloadNewsFromNewsApi() {
+
+        // WARNING: Just for test
+        final String API_KEY = "e4b7c97e135c4548b836b4ebd209dd14";
+        final int pageSize = 100;
+
+        // 1. Create the APIService from APIClient
+        final APIService apiService = APIClient.getAPIService();
+
+        // 2. Build the request params
+        final Map<String, String> reqParams = new HashMap<>();
+        // The ApiKey
+        reqParams.put("apiKey", API_KEY);
+        // Filter by category
+        reqParams.put("category", "technology");
+        // The number of result to return per page (request). 20 is the default, 100 is the maximum.
+        reqParams.put("pageSize", String.valueOf(pageSize));
+
+        // 3. Call the request
+        try {
+            Response<ArticleResponse> articlesResponse =
+                    apiService.getTopHeadlines(reqParams).execute();
+
+            // Exito!
+            if (articlesResponse.isSuccessful()){
+                //TODO: Check for getArticles != null
+                List<Article> articles = articlesResponse.body().getArticles();
+
+                // List<Article> to List<News>
+                List<News> news = new ArrayList<>();
+                for (Article article : articles){
+                    news.add(toNews(article));
+                }
+
+                // 4. Save into the local database
+                this.newsRepository.saveAll(news);
+            }
+        } catch (IOException e) {
+            log.error("Getting the Articles from NewsAPI", e);
+        }
+    }
+
+    /**
+     * Convert a Article to News.
+     *
+     * @param article to convert.
+     * @return the News.
+     */
+    private static News toNews(final Article article){
+
+        // Protection: author
+        if(article.getAuthor() == null || article.getAuthor().length() < 3){
+            article.setAuthor("No Author*");
+        }
+
+        // Protection: title
+        if (article.getTitle() == null || article.getTitle().length() < 3){
+            article.setTitle("No Title*");
+        }
+
+        // Protection: description
+        if(article.getDescription() == null || article.getDescription().length() < 4){
+            article.setDescription("No Description*");
+        }
+
+        // Parse the date and fix the zone
+        ZonedDateTime publishedAt = ZonedDateTime
+                .parse(article.getPublishedAt())
+                //Correct from UTC to LocalTime (Chile)
+                .withZoneSameInstant(ZoneId.of("-3"));
+
+        // Construct a News from Article
+        return new News(
+                article.getTitle(),
+                article.getSource().getName(),
+                article.getAuthor(),
+                article.getUrl(),
+                article.getUrlToImage(),
+                article.getDescription(),
+                article.getDescription(),
+                publishedAt
+        );
     }
 
     /**
      * @param id of News to retrieve.
      * @return the News.
      */
-    @GetMapping("/v1/news/{id}")
+    @GetMapping("v1/news/{id}")
     public News one(@PathVariable final Long id){
-        // FIXME: Only for test
-        News news = new News(
-                "Autoridades UCN informan a las unidades los detalles del Plan Retorno y piden acelerar regreso",
-                "Noticias UCN",
-                "UCN",
-                "https://www.noticias.ucn.cl/destacado/autoridades-ucn-informan-a-las-unidades-los-detalles-del-plan-retorno-y-piden-acelerar-regreso/#:~:text=9%20noviembre%2C%202021-,Autoridades%20UCN%20informan%20a%20las%20unidades%20los%20detalles%20del%20Plan,distintas%20unidades%20de%20la%20Universidad.",
-                "https://www.noticias.ucn.cl/wp-content/uploads/2011/11/WhatsApp-Image-2021-11-05-at-13.26.53-1.jpeg",
-                "En reuniones presenciales realizadas en la Casa Central se expusieron las medidas adoptadas y se respondieron las dudas de los y las representantes de las distintas unidades de la Universidad.",
-                "Directores/as y representantes de las distintas unidades académicas de Antofagasta de la Universidad Católica del Norte (UCN), recibieron con aprobación los detalles del Plan Retorno que desarrolla nuestra Casa de Estudios. En dos reuniones presenciales realizadas en el auditorio Andrés Sabella de la Casa Central, el vicerrector académico, Nelson Fernández Vergara; la vicerrectora de Asuntos Económicos y Administrativos, Ingrid Álvarez Arzic; y la directora de la Dirección de Personas (ex Dirección de Recursos Humanos) Alejandra Pizarro Véliz, les explicaron los detalles del proceso, respondiendo también las dudas de los y las asistentes.",
-                ZonedDateTime.now(ZoneId.of("-4"))
-        );
-
-        return news;
+        // FIXME: Change the RuntimeException to 404
+        return this.newsRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("News Not Found :("));
     }
 }

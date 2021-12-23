@@ -22,15 +22,27 @@ import net.openhft.hashing.LongHashFunction;
 import org.threeten.bp.ZonedDateTime;
 import lombok.Getter;
 
+import javax.persistence.*;
+
 /**
  *  The News Class.
  *  @author José Ávalos-Guzmán
  */
+@Entity
 public final class News {
+
+    /**
+     *  Primary Key.
+     */
+    @Id
+    @GeneratedValue (strategy = GenerationType.AUTO)
+    @Getter
+    private Long key;
 
     /**
      *  ID unique.
      */
+    // @Column(unique = true)
     @Getter
     private Long id;
 
